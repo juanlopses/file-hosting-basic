@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000; // Permitir que el puerto sea configurable
+const PORT = process.env.PORT || 3000;
 
 // Configurar almacenamiento de archivos con multer
 const storage = multer.diskStorage({
@@ -27,7 +27,7 @@ const upload = multer({ storage: storage });
 // Servir archivos estáticos desde la carpeta "uploads"
 app.use('/files', express.static('uploads'));
 
-// Configurar el frontend
+// Configurar el frontend con barra de carga y animaciones
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -77,6 +77,38 @@ app.get('/', (req, res) => {
                 label:hover {
                     background-color: #444;
                 }
+                label.uploading {
+                    animation: pulse 1.5s infinite;
+                }
+                @keyframes pulse {
+                    0% {
+                        transform: scale(1);
+                        border-color: #ff007a;
+                    }
+                    50% {
+                        transform: scale(1.05);
+                        border-color: #ff4da6;
+                    }
+                    100% {
+                        transform: scale(1);
+                        border-color: #ff007a;
+                    }
+                }
+                #progressContainer {
+                    width: 300px;
+                    height: 10px;
+                    background-color: #333;
+                    border-radius: 5px;
+                    margin-top: 20px;
+                    display: none;
+                }
+                #progressBar {
+                    width: 0%;
+                    height: 100%;
+                    background-color: #ff007a;
+                    border-radius: 5px;
+                    transition: width 0.3s ease-in-out;
+                }
                 #link {
                     margin-top: 20px;
                     color: #ff007a;
@@ -103,32 +135,68 @@ app.get('/', (req, res) => {
             <h1>file.ax</h1>
             <p>Simple & Private File Hosting</p>
             <form id="uploadForm" enctype="multipart/form-data">
-                <label for="fileInput">Select or drop file(s)</label>
+                <label for="fileInput" id="uploadLabel">Select or drop file(s)</label>
                 <input type="file" id="fileInput" name="file" onchange="uploadFile()">
             </form>
+            <div id="progressContainer">
+                <div id="progressBar"></div>
+            </div>
             <div id="link"></div>
 
             <script>
                 async function uploadFile() {
                     const fileInput = document.getElementById('fileInput');
+                    const uploadLabel = document.getElementById('uploadLabel');
+                    const progressContainer = document.getElementById('progressContainer');
+                    const progressBar = document.getElementById('progressBar');
+                    const linkDiv = document.getElementById('link');
+
+                    // Mostrar la barra de progreso y activar la animación del botón
+                    progressContainer.style.display = 'block';
+                    uploadLabel.classList.add('uploading');
+                    progressBar.style.width = '0%';
+                    linkDiv.innerHTML = '';
+
                     const formData = new FormData();
                     formData.append('file', fileInput.files[0]);
 
-                    const response = await fetch('/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const result = await response.json();
+                    // Crear una solicitud XMLHttpRequest para manejar el progreso
+                    const xhr = new XMLHttpRequest();
 
-                    const linkDiv = document.getElementById('link');
-                    if (result.url) {
-                        linkDiv.innerHTML = \`
-                            File uploaded! Link: <a href="\${result.url}" target="_blank">\${result.url}</a><br>
-                            <button id="copyButton" onclick="copyLink('\${result.url}')">Copy Link</button>
-                        \`;
-                    } else {
+                    // Actualizar la barra de progreso
+                    xhr.upload.onprogress = (event) => {
+                        if (event.lengthComputable) {
+                            const percentComplete = (event.loaded / event.total) * 100;
+                            progressBar.style.width = percentComplete + '%';
+                        }
+                    };
+
+                    // Manejar la respuesta
+                    xhr.onload = () => {
+                        const result = JSON.parse(xhr.responseText);
+                        progressContainer.style.display = 'none';
+                        uploadLabel.classList.remove('uploading');
+
+                        if (result.url) {
+                            linkDiv.innerHTML = \`
+                                File uploaded! Link: <a href="\${result.url}" target="_blank">\${result.url}</a><br>
+                                <button id="copyButton" onclick="copyLink('\${result.url}')">Copy Link</button>
+                            \`;
+                        } else {
+                            linkDiv.innerHTML = 'Error uploading file.';
+                        }
+                    };
+
+                    // Manejar errores
+                    xhr.onerror = () => {
+                        progressContainer.style.display = 'none';
+                        uploadLabel.classList.remove('uploading');
                         linkDiv.innerHTML = 'Error uploading file.';
-                    }
+                    };
+
+                    // Iniciar la solicitud
+                    xhr.open('POST', '/upload', true);
+                    xhr.send(formData);
                 }
 
                 function copyLink(url) {
@@ -156,8 +224,8 @@ app.post('/upload', (req, res) => {
         }
 
         // Obtener el dominio del servidor dinámicamente desde la solicitud
-        const protocol = req.headers['x-forwarded-proto'] || req.protocol; // 'http' o 'https'
-        const host = req.headers['x-forwarded-host'] || req.get('host'); // Dominio (localhost:3000 o tudominio.com)
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        const host = req.headers['x-forwarded-host'] || req.get('host');
         const fileUrl = `${protocol}://${host}/files/${req.file.filename}`;
 
         res.json({ url: fileUrl });
