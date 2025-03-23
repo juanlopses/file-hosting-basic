@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000; // Permitir que el puerto sea configurable
 
 // Configurar almacenamiento de archivos con multer
 const storage = multer.diskStorage({
@@ -27,7 +27,7 @@ const upload = multer({ storage: storage });
 // Servir archivos estáticos desde la carpeta "uploads"
 app.use('/files', express.static('uploads'));
 
-// Configurar el frontend (HTML con botón para copiar enlace)
+// Configurar el frontend
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -146,16 +146,25 @@ app.get('/', (req, res) => {
 });
 
 // Ruta para manejar la subida de archivos
-app.post('/upload', upload.single('file'), (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-    }
+app.post('/upload', (req, res) => {
+    upload.single('file')(req, res, (err) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error uploading file' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
 
-    const fileUrl = `http://localhost:${PORT}/files/${req.file.filename}`;
-    res.json({ url: fileUrl });
+        // Obtener el dominio del servidor dinámicamente desde la solicitud
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol; // 'http' o 'https'
+        const host = req.headers['x-forwarded-host'] || req.get('host'); // Dominio (localhost:3000 o tudominio.com)
+        const fileUrl = `${protocol}://${host}/files/${req.file.filename}`;
+
+        res.json({ url: fileUrl });
+    });
 });
 
 // Iniciar el servidor
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
